@@ -1,0 +1,116 @@
+{
+    "taskDefinitionArn": "arn:aws:ecs:us-east-2:893117704213:task-definition/nginx-task",
+    "containerDefinitions": [
+        {
+            "name": "gymapp-nginx",
+            "image": "893117704213.dkr.ecr.us-east-2.amazonaws.com/challenge-devops-ecs:latest",
+            "cpu": 512,
+            "memory": 1024,
+            "portMappings": [
+                {
+                    "containerPort": 80,
+                    "hostPort": 80,
+                    "protocol": "tcp"
+                }
+            ],
+            "essential": true,
+            "environment": [
+                {
+                    "name": "AUTHOR",
+                    "value": "BhuwanDevOpsGuru"
+                }
+            ],
+            "mountPoints": [
+                {
+                    "sourceVolume": "nginx-config",
+                    "containerPath": "/etc/nginx/conf.d"
+                }
+            ],
+            "volumesFrom": [],
+            "stopTimeout": 120,
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-create-group": "true",
+                    "awslogs-group": "/ecs/stage-nginx",
+                    "awslogs-region": "us-east-2",
+                    "awslogs-stream-prefix": "ecs"
+                }
+            }
+        }
+    ],
+    "family": "nginx-task",
+    "taskRoleArn": "arn:aws:iam::893117704213:role/ecs-service",
+    "executionRoleArn": "arn:aws:iam::893117704213:role/ecs-service",
+    "networkMode": "awsvpc",
+    "volumes": [
+        {
+            "name": "nginx-config",
+            "efsVolumeConfiguration": {
+                "fileSystemId": "fs-0ce20e39d68f7eb76",
+                "rootDirectory": "/nginx/config",
+                "transitEncryption": "ENABLED"
+            }
+        }
+    ],
+    "status": "ACTIVE",
+    "requiresAttributes": [
+        {
+            "name": "ecs.capability.execution-role-awslogs"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.ecr-auth"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.task-iam-role"
+        },
+        {
+            "name": "ecs.capability.execution-role-ecr-pull"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.18"
+        },
+        {
+            "name": "ecs.capability.task-eni"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.29"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.logging-driver.awslogs"
+        },
+        {
+            "name": "ecs.capability.efsAuth"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.19"
+        },
+        {
+            "name": "ecs.capability.efs"
+        },
+        {
+            "name": "ecs.capability.container-ordering"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.25"
+        }
+    ],
+    "placementConstraints": [],
+    "compatibilities": [
+        "EC2",
+        "FARGATE"
+    ],
+    "requiresCompatibilities": [
+        "FARGATE"
+    ],
+    "cpu": "512",
+    "memory": "1024",
+    "registeredAt": "2023-08-21T14:26:34.653Z",
+    "registeredBy": "arn:aws:iam::893117704213:user/oNe",
+    "tags": [
+        {
+            "key": "Name",
+            "value": "stage-nginx"
+        }
+    ]
+}

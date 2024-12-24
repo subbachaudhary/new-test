@@ -1,0 +1,112 @@
+name: pipeline-ecs-deploy
+
+on:
+  workflow_call:
+    inputs:
+      ECS_CLUSTER:
+        required: true
+        type: string
+      ECS_SERVICE:
+        required: true
+        type: string
+      ECS_CONTAINER_NAME:
+        required: true
+        type: string
+      ECR_REPOSITORY:
+        required: true
+        type: string
+      CODEDEPLOY_APPSPEC_FILE_NAME:
+        required: true
+        type: string
+      CODEDEPLOY_TASK_DEFINITION_TEMPLATEFILE:
+        required: true
+        type: string
+      AWS_REGION:
+        type: string
+        default: us-east-2
+      AWS_ACCESSKEY_NAME:
+        required: true
+        type: string
+      AWS_SECRECTKEY_NAME:
+        required: true
+        type: string
+        
+
+env:
+  ECS_CLUSTER: ${{ inputs.ECS_CLUSTER }}
+  ECS_SERVICE: ${{ inputs.ECS_SERVICE }}
+  ECS_CONTAINER_NAME: ${{ inputs.ECS_CONTAINER_NAME }}
+  ECR_REPOSITORY: ${{ inputs.ECR_REPOSITORY }}
+  CODEDEPLOY_APPSPEC_FILE_NAME: ${{ inputs.CODEDEPLOY_APPSPEC_FILE_NAME }}
+  CODEDEPLOY_TASK_DEFINITION_TEMPLATEFILE: ${{ inputs.CODEDEPLOY_TASK_DEFINITION_TEMPLATEFILE }}
+  AWS_REGION: ${{ inputs.AWS_REGION }}
+  AWS_ACCESSKEY_NAME: ${{ inputs.AWS_ACCESSKEY_NAME }}
+  AWS_SECRECTKEY_NAME: ${{ inputs.AWS_SECRECTKEY_NAME }}
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.build_push_image.outputs.image }}
+    steps:
+      - name: Checkout_Code
+        uses: actions/checkout@v3
+      - name: Calculate IMAGE_TAG
+        run: |
+          COMMIT_ID=$(echo ${GITHUB_SHA:0:7})
+          BUILD_ID=$GITHUB_RUN_NUMBER
+          IMAGE_TAG=$COMMIT_ID-$BUILD_ID
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+      - name: Configure_AWS_Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.$AWS_ACCESSKEY_NAME }}
+          aws-secret-access-key: ${{ secrets.$AWS_SECRECTKEY_NAME }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: 'no'
+      - name: Login_to_ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+        with:
+          mask-password: "true"
+      - name: Build_and_push_image_to_ECR
+        id: build_push_image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $REGISTRY/$ECR_REPOSITORY:${{ env.IMAGE_TAG }} .
+          docker push $REGISTRY/$ECR_REPOSITORY:${{ env.IMAGE_TAG }}
+          echo "image=$REGISTRY/$ECR_REPOSITORY:${{ env.IMAGE_TAG }}" >> $GITHUB_OUTPUT
+  deploy-app:
+    runs-on: ubuntu-latest
+    needs: ["docker-build"]
+    steps:
+      - name: Checkout_Code
+        uses: actions/checkout@v3
+      - name: Debug image
+        id: debug
+        run: |
+          echo "Debuging .... ${{ needs.docker-build.outputs.image }}"
+      - name: Configure_AWS_Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.$AWS_ACCESSKEY_NAME }}
+          aws-secret-access-key: ${{ secrets.$AWS_SECRECTKEY_NAME }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Update_Task_Definition_File
+        id: task_def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ./devops_templates/${{ env.CODEDEPLOY_TASK_DEFINITION_TEMPLATEFILE }}
+          container-name: ${{ env.ECS_CONTAINER_NAME }}
+          image: ${{ needs.docker-build.outputs.image }}
+      - name: Deploy_to_ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task_def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          codedeploy-application: ${{ env.ECS_CLUSTER }}
+          codedeploy-deployment-group: ${{ env.ECS_SERVICE }}
+          wait-for-service-stability: true
+          codedeploy-appspec: ./devops_templates/${{ env.CODEDEPLOY_APPSPEC_FILE_NAME }}

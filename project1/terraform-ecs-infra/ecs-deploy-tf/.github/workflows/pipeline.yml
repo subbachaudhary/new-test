@@ -1,0 +1,22 @@
+name: pipeline
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  stage-pipeline:
+    # if: ( github.event_name == 'push' && github.event.ref == 'refs/heads/stage' )
+    uses: DevilHost069/terraform-ecs-infra/.github/workflows/ecs-deploy-pipeline.yml@stage   #Change as per your github repo
+    secrets: inherit
+    with:
+      ECS_CLUSTER: stage-challenge-ecs-fargate
+      ECS_SERVICE: nginx-service
+      ECS_CONTAINER_NAME: gymapp-nginx
+      ECR_REPOSITORY: challenge-devops-ecs
+      CODEDEPLOY_APPSPEC_FILE_NAME: appspec.yml
+      CODEDEPLOY_TASK_DEFINITION_TEMPLATEFILE: task-definition.json
+      AWS_REGION: us-east-2
+      AWS_ACCESSKEY_NAME: STAGE_ECS_AWS_ACCESS_KEY
+      AWS_SECRECTKEY_NAME: STAGE_ECS_AWS_SECRECT_KEY
+ 

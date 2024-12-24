@@ -1,0 +1,152 @@
+name: Deployment of the flytechy into the AWS DEV env for the api application test
+
+on:
+  push:
+    branches:
+      - dev
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_REGISTRY: ${{ secrets.STAGE_ECR_REPOSITORY }}
+  ECS_SERVICE: ${{ secrets.ECS_SERVICE }}
+  DEV_CLUSTER: ${{ secrets.ECS_CLUSTER }}
+  CONTAINER_NAME: ${{ secrets.CONTAINER_NAME }}
+  SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  S3_ENDPOINT: ${{ secrets.DEV_S3_ENDPOINT }}
+  AI_AWS_ACCESS_KEY: ${{ secrets.DEV_AWS_ACCESS_KEY_ID }}
+  AI_AWS_SECRET_ACCESS_KEY: ${{ secrets.DEV_AWS_SECRET_ACCESS_KEY }}
+  S3_BUCKET_NAME: ${{ secrets.DEV_S3_BUCKET_NAME }}
+  FISH_BUCKET_MODEL_PATH: ${{ secrets.DEV_FISH_BUCKET_MODEL_PATH }}
+  PBALL_BUCKET_MODEL_PATH: ${{ secrets.DEV_PBALL_BUCKET_MODEL_PATH }}
+  FISH_SEG_BUCKET_MODEL_PATH: ${{ secrets.DEV_FISH_SEG_BUCKET_MODEL_PATH }}
+
+jobs:
+  build-dev-env:
+    if: github.repository == 'shrig-Solutions/flytechyAI'
+    runs-on: self-hosted
+    permissions:
+      packages: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: SonarQube scanning
+        uses: sonarsource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      - name: SonarQube Quality Gate check
+        uses: sonarsource/sonarqube-quality-gate-action@master
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@0e613a0980cbf65ed5b322eb7a1e075d28913a83
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+  
+      - name: download model from the bucket
+        run: python3 ./loaders/download-model.py
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@62f4f872db3836360b72999f4b87f1ff13310f3a
+
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+          ECR_REPOSITORY: ${{secrets.STAGE_ECR_REPOSITORY}}
+        run: |
+          # be deployed to ECS.
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          trivy image $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG --scanners vuln
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@c804dfbdd57f713b6c079302a4c01db7017a36fc
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ secrets.CONTAINER_NAME }}
+          image: ${{ steps.build-image.outputs.image }}
+          
+      - name: Deploy Amazon ECS task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@df9643053eda01f169e64a0e60233aacca83799a
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ secrets.ECS_SERVICE }}
+          cluster: ${{ secrets.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Slack Notification on SUCCESS
+        if: success()
+        uses: tokorom/action-slack-incoming-webhook@main
+        env:
+          INCOMING_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        with:
+          text: A build and deploy job for flytechy-ai-api has succeeded :tada:.
+          attachments: |
+            [
+              {
+                "color": "good",
+                "author_name": "${{ github.actor }}",
+                "author_icon": "${{ github.event.sender.avatar_url }}",
+                "fields": [
+                  {
+                    "title": "Commit Message",
+                    "value": "${{ github.event.head_commit.message }}"
+                  },
+                  {
+                    "title": "GitHub Actions URL",
+                    "value": "${{ github.event.repository.url }}/actions/runs/${{ github.run_id }}"
+                  },
+                  {
+                    "title": "Compare URL",
+                    "value": "${{ github.event.compare }}"
+                  }
+                ]
+              }
+            ]
+
+      - name: Slack Notification on FAILURE
+        if: failure()
+        uses: tokorom/action-slack-incoming-webhook@main
+        env:
+          INCOMING_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        with:
+          text: A build and deploy to develop job for flytechy-ai-api has failed :crying_cat_face:.
+          attachments: |
+            [
+              {
+                "color": "danger",
+                "author_name": "${{ github.actor }}",
+                "author_icon": "${{ github.event.sender.avatar_url }}",
+                "fields": [
+                  {
+                    "title": "Commit Message",
+                    "value": "${{ github.event.head_commit.message }}"
+                  },
+                  {
+                    "title": "GitHub Actions URL",
+                    "value": "${{ github.event.repository.url }}/actions/runs/${{ github.run_id }}"
+                  },
+                  {
+                    "title": "Compare URL",
+                    "value": "${{ github.event.compare }}"
+                  }
+                ]
+              }
+            ]
+    
